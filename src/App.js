@@ -20,7 +20,7 @@ import {
   IconButton,
   Divider
 } from '@material-ui/core';
-import { Autocomplete } from '@material-ui/lab';
+import { Autocomplete } from '@material-ui/lab'; 
 import {
   ExpandMore as ExpandMoreIcon,
   Add as AddIcon,
