@@ -35,8 +35,8 @@ import './App.css';
 
 const _cellValueList = [
   'cell value 1', 'cell value 2', 'cell value 3', 'cell value 4',
-  '[15401]', '[1000]', '[18400]', '[15090]', 'A1', 'B1', 'C1', 'D1',
-  'OT1.1', 'STRUC_HRS'
+  '[15401]', '[1000]', '[18400]', '[15090]', '[99999]', 
+  'A1', 'B1', 'C1', 'D1', 'OT1.1', 'STRUC_HRS'
 ];
 const _OperatorList = ['+', '-', '*', '/'];
 const _ConditionList = ['==', '>=', '<=', '<>'];
@@ -201,19 +201,32 @@ const FormulaNode = ({ node, onChange }) => {
       return (
         <Paper className={classes.nodeContainer}>
           {renderTypeControl()}
-          <FormControl fullWidth size="small">
-            <InputLabel>Select Cell Value</InputLabel>
-            <Select
+          <Box display="flex" gap={1}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Select Cell Value</InputLabel>
+              <Select
+                value={_cellValueList.includes(node.value) ? node.value : ''}
+                onChange={(e) => onChange({ ...node, value: e.target.value })}
+              >
+                {_cellValueList.map((c) => (
+                  <MenuItem key={c} value={c}>
+                    {c}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              size="small"
+              label="Or Enter Custom"
               value={node.value}
               onChange={(e) => onChange({ ...node, value: e.target.value })}
-            >
-              {_cellValueList.map((c) => (
-                <MenuItem key={c} value={c}>
-                  {c}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+              placeholder="e.g., [99999]"
+              style={{ minWidth: '150px' }}
+            />
+          </Box>
+          <Typography variant="caption" style={{ color: '#666', marginTop: '4px', display: 'block' }}>
+            💡 Bracket references like [99999] are automatically treated as cell values
+          </Typography>
         </Paper>
       );
 
@@ -613,10 +626,10 @@ const parseExpression = (expr) => {
     return { type: 'textbox', value: expr.slice(1, -1) };
   }
   
-  // Handle square bracket references like [15401]
+  // Handle square bracket references like [15401] or [99999]
   if (expr.startsWith('[') && expr.endsWith(']')) {
     console.log('Detected bracket reference');
-    const cellRef = expr.slice(1, -1);
+    // Any bracket reference is treated as cellValue, regardless of _cellValueList
     return { type: 'cellValue', value: expr }; // Keep the brackets for display
   }
   
@@ -635,6 +648,12 @@ const parseExpression = (expr) => {
   // Handle standard Excel cell references (A1, B2, etc.)
   if (/^[A-Z]+[0-9]+$/i.test(expr)) {
     console.log('Detected Excel cell reference');
+    return { type: 'cellValue', value: expr };
+  }
+  
+  // Handle any unknown identifier as cellValue (like OT1.1, STRUC_HRS, etc.)
+  if (/^[A-Za-z0-9_.]+$/.test(expr)) {
+    console.log('Detected identifier as cell value');
     return { type: 'cellValue', value: expr };
   }
   
@@ -1007,7 +1026,9 @@ const FormulaBuilder = () => {
                 • <code>=A1+B1*2</code> - Simple math operations<br/>
                 • <code>=IF(A1{'>'}10,"High","Low")</code> - Conditional logic<br/>
                 • <code>=LOOKUP(A1,B:B,C:C)</code> - Lookup functions<br/>
-                • <code>=(A1+B1)*(C1-D1)</code> - Complex nested operations
+                • <code>=[99999]*2.5+[12345]</code> - Bracket cell references<br/>
+                • <code>=(A1+B1)*(C1-D1)</code> - Complex nested operations<br/>
+                <strong>🔧 Auto-detection:</strong> Any [number] is treated as a cell reference
               </Typography>
               {parseError && (
                 <Box mt={1} p={1} bgcolor="#ffebee" borderRadius={1} border="1px solid #f44336">
