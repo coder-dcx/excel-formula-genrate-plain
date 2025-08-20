@@ -33,7 +33,11 @@ import {
 import { makeStyles } from '@material-ui/core/styles';
 import './App.css';
 
-const _cellValueList = ['cell value 1', 'cell value 2', 'cell value 3', 'cell value 4'];
+const _cellValueList = [
+  'cell value 1', 'cell value 2', 'cell value 3', 'cell value 4',
+  '[15401]', '[1000]', '[18400]', '[15090]', 'A1', 'B1', 'C1', 'D1',
+  'OT1.1', 'STRUC_HRS'
+];
 const _OperatorList = ['+', '-', '*', '/'];
 const _ConditionList = ['==', '>=', '<=', '<>'];
 const _FunctionList = ['cellValue', 'number', 'textbox', 'operator', 'if', 'lookup'];
@@ -566,60 +570,115 @@ const parseExcelFormula = (formula) => {
   // Remove leading = if present
   formula = formula.trim().replace(/^=/, '');
   
+  console.log('Parsing formula:', formula);
+  
   try {
-    return parseExpression(formula);
+    const result = parseExpression(formula);
+    console.log('Parsed result:', result);
+    return result;
   } catch (error) {
     console.error('Error parsing formula:', error);
+    // Instead of returning textbox, try to parse as operator expression
+    if (containsOperator(formula)) {
+      console.log('Trying as operator expression...');
+      try {
+        return parseOperatorExpression(formula);
+      } catch (opError) {
+        console.error('Operator parsing also failed:', opError);
+      }
+    }
     return { type: 'textbox', value: formula };
   }
 };
 
 const parseExpression = (expr) => {
   expr = expr.trim();
+  console.log('parseExpression called with:', expr);
   
-  // Handle IF function
-  if (expr.toUpperCase().startsWith('IF(')) {
+  // Handle IF function (case insensitive) - check before parentheses
+  if (/^if\s*\(/i.test(expr)) {
+    console.log('Detected IF function');
     return parseIfFunction(expr);
   }
   
   // Handle LOOKUP function
   if (expr.toUpperCase().startsWith('LOOKUP(')) {
+    console.log('Detected LOOKUP function');
     return parseLookupFunction(expr);
   }
   
-  // Handle parentheses for operators
-  if (expr.startsWith('(') && expr.endsWith(')')) {
-    const inner = expr.slice(1, -1);
-    return parseOperatorExpression(inner);
-  }
-  
   // Handle quoted strings
-  if (expr.startsWith('"') && expr.endsWith('"')) {
+  if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+    console.log('Detected quoted string');
     return { type: 'textbox', value: expr.slice(1, -1) };
   }
   
-  // Handle numbers
-  if (!isNaN(expr) && expr !== '') {
+  // Handle square bracket references like [15401]
+  if (expr.startsWith('[') && expr.endsWith(']')) {
+    console.log('Detected bracket reference');
+    const cellRef = expr.slice(1, -1);
+    return { type: 'cellValue', value: expr }; // Keep the brackets for display
+  }
+  
+  // Handle numbers (including decimals)
+  if (!isNaN(expr) && expr !== '' && !isNaN(parseFloat(expr))) {
+    console.log('Detected number');
     return { type: 'number', value: Number(expr) };
   }
   
   // Check if it's a known cell value
   if (_cellValueList.includes(expr)) {
+    console.log('Detected known cell value');
     return { type: 'cellValue', value: expr };
   }
   
-  // Handle operator expressions without parentheses
+  // Handle standard Excel cell references (A1, B2, etc.)
+  if (/^[A-Z]+[0-9]+$/i.test(expr)) {
+    console.log('Detected Excel cell reference');
+    return { type: 'cellValue', value: expr };
+  }
+  
+  // Handle operator expressions (check this before parentheses for complex expressions)
   if (containsOperator(expr)) {
+    console.log('Detected operator expression');
     return parseOperatorExpression(expr);
   }
   
-  // Default to cell value or textbox
+  // Handle parentheses for simple grouping (only if no operators detected)
+  if (expr.startsWith('(') && expr.endsWith(')')) {
+    console.log('Detected parentheses grouping');
+    const inner = expr.slice(1, -1);
+    return parseExpression(inner);
+  }
+  
+  // Default to cell value
+  console.log('Defaulting to cell value');
   return { type: 'cellValue', value: expr };
 };
 
 const containsOperator = (expr) => {
   const operators = ['+', '-', '*', '/'];
-  return operators.some(op => expr.includes(op));
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let inQuotes = false;
+  
+  for (let i = 0; i < expr.length; i++) {
+    const char = expr[i];
+    
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (!inQuotes) {
+      if (char === '(') parenDepth++;
+      else if (char === ')') parenDepth--;
+      else if (char === '[') bracketDepth++;
+      else if (char === ']') bracketDepth--;
+      else if (parenDepth === 0 && bracketDepth === 0 && operators.includes(char)) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 };
 
 const parseOperatorExpression = (expr) => {
@@ -628,22 +687,31 @@ const parseOperatorExpression = (expr) => {
   const operatorsList = [];
   let current = '';
   let parenDepth = 0;
+  let bracketDepth = 0;
+  let inQuotes = false;
   
   for (let i = 0; i < expr.length; i++) {
     const char = expr[i];
     
-    if (char === '(') parenDepth++;
-    else if (char === ')') parenDepth--;
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (!inQuotes) {
+      if (char === '(') parenDepth++;
+      else if (char === ')') parenDepth--;
+      else if (char === '[') bracketDepth++;
+      else if (char === ']') bracketDepth--;
+    }
     
-    if (parenDepth === 0 && operators.includes(char)) {
+    if (!inQuotes && parenDepth === 0 && bracketDepth === 0 && operators.includes(char)) {
       if (current.trim()) {
         parts.push(current.trim());
         operatorsList.push(char);
         current = '';
+        continue;
       }
-    } else {
-      current += char;
     }
+    
+    current += char;
   }
   
   if (current.trim()) {
@@ -662,8 +730,13 @@ const parseOperatorExpression = (expr) => {
 };
 
 const parseIfFunction = (expr) => {
-  // Extract content between IF( and )
-  const content = extractFunctionContent(expr, 'IF');
+  // Extract content between IF( and ) - case insensitive
+  const ifMatch = expr.match(/^if\s*\(/i);
+  if (!ifMatch) {
+    throw new Error('IF function not found');
+  }
+  
+  const content = extractFunctionContent(expr, ifMatch[0].slice(0, -1)); // Remove the '(' 
   const args = splitFunctionArgs(content);
   
   if (args.length < 3) {
@@ -685,7 +758,32 @@ const parseCondition = (conditionStr) => {
   const conditionOps = ['>=', '<=', '<>', '==', '>', '<', '='];
   
   for (const op of conditionOps) {
-    const index = conditionStr.indexOf(op);
+    let index = -1;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let inQuotes = false;
+    
+    // Find operator not inside parentheses, brackets, or quotes
+    for (let i = 0; i < conditionStr.length - op.length + 1; i++) {
+      const char = conditionStr[i];
+      
+      if (char === '"' || char === "'") {
+        inQuotes = !inQuotes;
+      } else if (!inQuotes) {
+        if (char === '(') parenDepth++;
+        else if (char === ')') parenDepth--;
+        else if (char === '[') bracketDepth++;
+        else if (char === ']') bracketDepth--;
+      }
+      
+      if (!inQuotes && parenDepth === 0 && bracketDepth === 0) {
+        if (conditionStr.substring(i, i + op.length) === op) {
+          index = i;
+          break;
+        }
+      }
+    }
+    
     if (index !== -1) {
       const left = conditionStr.substring(0, index).trim();
       const right = conditionStr.substring(index + op.length).trim();
@@ -718,7 +816,7 @@ const parseLookupFunction = (expr) => {
 };
 
 const extractFunctionContent = (expr, functionName) => {
-  const start = expr.toUpperCase().indexOf(functionName.toUpperCase() + '(');
+  const start = expr.toLowerCase().indexOf(functionName.toLowerCase() + '(');
   if (start === -1) throw new Error(`Function ${functionName} not found`);
   
   let parenCount = 0;
@@ -739,16 +837,20 @@ const splitFunctionArgs = (content) => {
   const args = [];
   let current = '';
   let parenDepth = 0;
+  let bracketDepth = 0;
   let inQuotes = false;
   
   for (let i = 0; i < content.length; i++) {
     const char = content[i];
     
-    if (char === '"') inQuotes = !inQuotes;
-    else if (!inQuotes) {
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (!inQuotes) {
       if (char === '(') parenDepth++;
       else if (char === ')') parenDepth--;
-      else if (char === ',' && parenDepth === 0) {
+      else if (char === '[') bracketDepth++;
+      else if (char === ']') bracketDepth--;
+      else if (char === ',' && parenDepth === 0 && bracketDepth === 0) {
         args.push(current.trim());
         current = '';
         continue;
@@ -778,6 +880,7 @@ const FormulaBuilder = () => {
   ]);
   
   const [importFormula, setImportFormula] = useState('');
+  const [parseError, setParseError] = useState('');
 
   const updateFormulaAtIndex = (idx, newNode) => {
     const newFormulas = [...formulas];
@@ -804,24 +907,34 @@ const FormulaBuilder = () => {
   const handleImportFormula = () => {
     if (!importFormula.trim()) return;
     
+    console.log('Importing formula:', importFormula);
+    
     try {
       const parsedFormula = parseExcelFormula(importFormula);
+      console.log('Successfully parsed:', parsedFormula);
       setFormulas([...formulas, parsedFormula]);
       setImportFormula('');
+      setParseError('');
     } catch (error) {
-      alert('Error parsing formula: ' + error.message);
+      console.error('Parse error:', error);
+      setParseError('Error parsing formula: ' + error.message);
     }
   };
 
   const handleParseAndReplace = () => {
     if (!importFormula.trim()) return;
     
+    console.log('Replacing with formula:', importFormula);
+    
     try {
       const parsedFormula = parseExcelFormula(importFormula);
+      console.log('Successfully parsed for replacement:', parsedFormula);
       setFormulas([parsedFormula]);
       setImportFormula('');
+      setParseError('');
     } catch (error) {
-      alert('Error parsing formula: ' + error.message);
+      console.error('Parse error:', error);
+      setParseError('Error parsing formula: ' + error.message);
     }
   };
 
@@ -861,7 +974,10 @@ const FormulaBuilder = () => {
               <Box display="flex" gap={1} mb={2} flexWrap="wrap">
                 <TextField
                   value={importFormula}
-                  onChange={(e) => setImportFormula(e.target.value)}
+                  onChange={(e) => {
+                    setImportFormula(e.target.value);
+                    setParseError(''); // Clear error when user types
+                  }}
                   placeholder="Paste your Excel formula here (e.g., =IF(A1>5,B1+C1,D1*2))"
                   variant="outlined"
                   size="small"
@@ -893,6 +1009,13 @@ const FormulaBuilder = () => {
                 • <code>=LOOKUP(A1,B:B,C:C)</code> - Lookup functions<br/>
                 • <code>=(A1+B1)*(C1-D1)</code> - Complex nested operations
               </Typography>
+              {parseError && (
+                <Box mt={1} p={1} bgcolor="#ffebee" borderRadius={1} border="1px solid #f44336">
+                  <Typography variant="caption" style={{ color: '#f44336' }}>
+                    <strong>⚠️ Parse Error:</strong> {parseError}
+                  </Typography>
+                </Box>
+              )}
             </CardContent>
           </Card>
 
