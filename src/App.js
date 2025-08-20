@@ -20,6 +20,7 @@ import {
   IconButton,
   Divider
 } from '@material-ui/core';
+import { Autocomplete } from '@material-ui/lab';
 import {
   ExpandMore as ExpandMoreIcon,
   Add as AddIcon,
@@ -201,31 +202,68 @@ const FormulaNode = ({ node, onChange }) => {
       return (
         <Paper className={classes.nodeContainer}>
           {renderTypeControl()}
-          <Box display="flex" gap={1}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Select Cell Value</InputLabel>
-              <Select
-                value={_cellValueList.includes(node.value) ? node.value : ''}
-                onChange={(e) => onChange({ ...node, value: e.target.value })}
-              >
-                {_cellValueList.map((c) => (
-                  <MenuItem key={c} value={c}>
-                    {c}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField
-              size="small"
-              label="Or Enter Custom"
-              value={node.value}
-              onChange={(e) => onChange({ ...node, value: e.target.value })}
-              placeholder="e.g., [99999]"
-              style={{ minWidth: '150px' }}
-            />
-          </Box>
+          <Autocomplete
+            value={node.value}
+            onChange={(event, newValue) => {
+              // Handle both selection and custom input
+              onChange({ ...node, value: newValue || '' });
+            }}
+            onInputChange={(event, newInputValue) => {
+              // Update value as user types
+              onChange({ ...node, value: newInputValue });
+            }}
+            options={_cellValueList}
+            freeSolo // Allow custom values not in the list
+            selectOnFocus
+            clearOnBlur
+            handleHomeEndKeys
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Cell Value"
+                placeholder="Select or type cell reference (e.g., [99999], A1, OT1.1)"
+                size="small"
+                fullWidth
+                variant="outlined"
+              />
+            )}
+            renderOption={(option) => (
+              <div className="cell-value-option">
+                {option.startsWith('[') && option.endsWith(']') && (
+                  <Chip size="small" label="[ ]" color="primary" variant="outlined" />
+                )}
+                {/^[A-Z]+[0-9]+$/i.test(option) && (
+                  <Chip size="small" label="Excel" color="secondary" variant="outlined" />
+                )}
+                {!/^[A-Z]+[0-9]+$/i.test(option) && !option.startsWith('[') && option !== 'cell value 1' && option !== 'cell value 2' && option !== 'cell value 3' && option !== 'cell value 4' && (
+                  <Chip size="small" label="Custom" color="default" variant="outlined" />
+                )}
+                <Typography variant="body2" style={{ flex: 1 }}>
+                  {option}
+                </Typography>
+              </div>
+            )}
+            filterOptions={(options, { inputValue }) => {
+              // Show matching options
+              const filtered = options.filter(option =>
+                option.toLowerCase().includes(inputValue.toLowerCase())
+              );
+              
+              // If input doesn't match any existing option and has content, suggest it as new
+              if (inputValue !== '' && !options.includes(inputValue) && inputValue.trim()) {
+                filtered.unshift(`${inputValue} (new)`);
+              }
+              
+              return filtered;
+            }}
+            getOptionLabel={(option) => {
+              // Remove "(new)" suffix for display
+              return option.replace(' (new)', '');
+            }}
+          />
           <Typography variant="caption" style={{ color: '#666', marginTop: '4px', display: 'block' }}>
-            💡 Bracket references like [99999] are automatically treated as cell values
+            💡 <strong>Smart autocomplete:</strong> Type to search or create new values. 
+            Bracket refs like [99999] are auto-detected. Press Enter to confirm.
           </Typography>
         </Paper>
       );
